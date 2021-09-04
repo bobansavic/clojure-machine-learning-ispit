@@ -4,7 +4,6 @@
     [cortex.nn.execute :as execute]
     [cortex.nn.layers :as layers]
     [cortex.nn.network :as network]
-    [cortex.util :as util]
     [clojure-machine-learning-ispit.dataset-processor :as dsp]
     :reload))
 
@@ -72,8 +71,9 @@
                    (layers/softmax :id :output)]))
 
 ;; Training
-(def trained-network (binding [*out* (clojure.java.io/writer "dota-2-training.log")]
-                (train/train-n neural-network (dsp/final(dsp/generate-transformed-dataset)) (dsp/final(dsp/generate-transformed-dataset))
+(def trained-network
+  (binding [*out* (clojure.java.io/writer "dota-2-training.log")]
+    (train/train-n neural-network (dsp/final(dsp/generate-transformed-dataset)) (dsp/final(dsp/generate-transformed-dataset))
                                :batch-size 27
                                :network-filestem "dota-2"
                                :epoch-count 5000)))
@@ -89,11 +89,11 @@
   (prn team2 stats2)
   (if (= team1 winner)
     (do
-      (prn (str " -> Match winner was " winner ". Network predicted: " winner " with " (* 100 output) "% certainty. [CORRECT!]"))
+      (prn (str " -> Match winner was " winner ". Network predicted: " winner ". [CORRECT!]"))
       (swap! successful-predictions inc)
       (constantly nil))
     (do
-      (prn (str " -> Match winner was " winner ". Network predicted: " winner " with " (* 100 output) "% certainty. [INCORRECT!]"))
+      (prn (str " -> Match winner was " winner ". Network predicted: " winner ". [INCORRECT!]"))
       (constantly nil))))
 
 ;; Returns network accuracy percentage as a string

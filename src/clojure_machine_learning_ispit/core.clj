@@ -5,10 +5,18 @@
     [cortex.nn.layers :as layers]
     [cortex.nn.network :as network]
     [clojure-machine-learning-ispit.dataset-processor :as dsp]
+    [cortex.util :as util]
     :reload))
 
 (def total-attempts (atom 0))
 (def successful-predictions (atom 0))
+
+(defn normalize
+  [output]
+  (cond
+    (>= output 2) 1.0
+     (<= output 0) 0.0
+     :else (float (/ output 2))))
 
 (def team-og
   "OG")
@@ -26,7 +34,10 @@
   "Mineski")
 (def team-eg
   "Evil Geniuses")
-
+(def team-a
+  "Team A")
+(def team-b
+  "Team B")
 
 ;; Teams and performance stats scraped from https://www.dotabuff.com/esports/events/283-ti9-main-event
 (def ti-2019-teams-and-stats
@@ -45,7 +56,11 @@
    {:team team-mineski
     :stats [50, 50, 3.67, 2584, 2746]},
    {:team team-eg
-    :stats [33, 38, 3.65, 2097, 2443]}])
+    :stats [33, 38, 3.65, 2097, 2443]}
+   {:team team-a
+    :stats [0, 0, 1, 1000, 1000]},
+   {:team team-b
+    :stats [100, 100, 3, 3000, 3000]}])
 
 ;;Match-ups for The DotA 2 International 2019 Main Event which can be examined at https://www.dotabuff.com/esports/events/283-ti9-main-event
 (def ti-2019-matchups
@@ -62,24 +77,24 @@
 ;; Network definition
 (def neural-network (network/linear-network
                   [(layers/input 10 1 1 :id :input)
-                   (layers/linear->relu 40)
                    (layers/batch-normalization)
+                   (layers/linear->relu 40)
                    (layers/dropout 0.9)
                    (layers/linear->relu 20)
                    (layers/linear->relu 10)
-                   (layers/linear 2)
-                   (layers/softmax :id :output)]))
+                   (layers/linear 1 :id :output)
+                   ]))
 
 ;; Training
-(def trained-network
-  (binding [*out* (clojure.java.io/writer "dota-2-training.log")]
-    (train/train-n neural-network (dsp/final(dsp/generate-transformed-dataset)) (dsp/final(dsp/generate-transformed-dataset))
-                               :batch-size 27
-                               :network-filestem "dota-2"
-                               :epoch-count 5000)))
+;(def trained-network
+;  (binding [*out* (clojure.java.io/writer "dota-2-training.log")]
+;    (train/train-n neural-network (dsp/final(dsp/generate-transformed-dataset)) (dsp/final(dsp/generate-transformed-dataset))
+;                               :batch-size 27
+;                               :network-filestem "dota-2"
+;                               :epoch-count 3000)))
 
 ;; Can be used to load saved network from file
-;(def trained-network (util/read-nippy-file "dota-2.nippy"))
+(def trained-network (util/read-nippy-file "dota-2.nippy"))
 
 ;; Prints evaluation results and increments total-attempts and successful-predictions appropriately
 (defn process-result [team1 stats1 team2 stats2 winner output]
@@ -89,11 +104,11 @@
   (prn team2 stats2)
   (if (= team1 winner)
     (do
-      (prn (str " -> Match winner was " winner ". Network predicted: " winner ". [CORRECT!]"))
+      (prn (str " -> Match winner was " team1 ". Network predicted: " winner " with " (* 100 output) "% certainty. [CORRECT!]"))
       (swap! successful-predictions inc)
       (constantly nil))
     (do
-      (prn (str " -> Match winner was " winner ". Network predicted: " winner ". [INCORRECT!]"))
+      (prn (str " -> Match winner was " team1 ". Network predicted: " winner " with " (* 100 output) "% certainty. [INCORRECT!]"))
       (constantly nil))))
 
 ;; Returns network accuracy percentage as a string
@@ -108,15 +123,16 @@
         team2 (get matchup :team2)]
     (let [stats1 (get (first (filter (comp #{team1} :team) ti-2019-teams-and-stats)) :stats)
           stats2 (get (first (filter (comp #{team2} :team) ti-2019-teams-and-stats)) :stats)]
-      (let [output (get (first (execute/run trained-network [{:input (vec(concat stats1 stats2))}])) :output)]
-        (let [output1 (bigdec (format "%.1f" (first output)))
-              output2 (bigdec (format "%.1f" (last output)))]
+      (let [raw-output (get (first (execute/run trained-network [{:input (vec(concat stats1 stats2))}])) :output)]
+        (let [output (normalize (bigdec (format "%.1f" (first raw-output))))]
+          (prn {:output output})
           (cond
-            (> output1 output2) (process-result team1 stats1 team2 stats2 team1 output1)
-            (> output1 output2) (process-result team1 stats1 team2 stats2 team2 output2)))
-        ))))
+            (> output 0.5) (process-result team1 stats1 team2 stats2 team1 output)
+            (<= output 0.5) (process-result team1 stats1 team2 stats2 team2 output))
+          )))))
 
-
+(defn split-by-whitespace [s]
+  (clojure.string/split s #"\s+"))
 
 (defn -main
   []
@@ -126,4 +142,20 @@
   (prn "[Team name] [Series win rate] [Matches win rate] [KDA - Kill/Death/Assistance avg] [GPM - Gold per minute] [XPM - Experience per minute]")
   (doall (map #(process-matchup %) ti-2019-matchups))
   (prn (str "Network accuracy: " (network-accuracy @total-attempts @successful-predictions)))
-  )
+  (prn "Test the network by providing both team's stats:")
+  (loop []
+    (prn "Team 1 stats: [Series win %, Matches win %, KDA, GPM, XPM] separated by space.")
+    (let [x-input [(split-by-whitespace (read-line))]]
+      (let [x (into [] (map #(bigdec %) (into [] (flatten [x-input]))))]
+        (prn "Team 2 stats:")
+        (let [y-input [(split-by-whitespace (read-line))]]
+          (let [y (into [] (map #(bigdec %) (into [] (flatten [y-input]))))]
+            (let [output (normalize (bigdec (format "%.1f" (first (get (first (execute/run trained-network [{:input (vec(concat x y))}])) :output)))))]
+              (prn (str "The network predicted that Team 1 has " (bigdec (format "%.1f"(* 100 output))) "% chance of winning."))
+              (constantly nil)
+              )
+            )
+          )
+        ))
+    (recur))
+)

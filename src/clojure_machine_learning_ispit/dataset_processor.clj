@@ -41,15 +41,15 @@
     (map #(map parse-string-inputs %))
     (map vec)))
 
-;; Transforms "1" and "2" outputs into [1 0] and [0 1] respectively
+;; Transforms "1" and "2" outputs into 1 and 0 respectively (first team win = 0, second team win = 1)
 (def transform-outputs
   (comp
     (map last)
     (map (fn [winner]
            (let [w (first winner)]
              (case w
-               "1" [1 0]
-               "2" [0 1]))))))
+               "1" 1
+               "2" 0))))))
 
 ;; Trims and splits the data set, transforms inputs and outputs into necessary formats of each row
 ;; (float and two-value vector respectively) separately and joins them back into a single collection.
